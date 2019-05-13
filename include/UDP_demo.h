@@ -18,7 +18,7 @@ typedef struct UDP_PROTOCOL_USER_SET_PARAM
 }UPUSP;
 
 
-int AtonIp(char *str_ip, void *be_ip);
+int AtonIp(const char *str_ip, void *be_ip);
 
 int UDP_SetParam(UPUSP *p_upusp, int socket, struct sockaddr_in *server);
 

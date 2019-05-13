@@ -18,7 +18,7 @@ BE_ip[2]:10
 BE_ip[3]:ff
 
 */
-int AtonIp(char *str_ip, void *be_ip)
+int AtonIp(const char *str_ip, void *be_ip)
 {
     return !inet_aton(str_ip, (struct in_addr *)be_ip);
 }

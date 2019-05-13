@@ -19,7 +19,7 @@
 
 /* net */
 #if PC
-#define DEFAULT_LAN_IF  "enp3s0"
+#define DEFAULT_LAN_IF  "ens33"//"enp3s0"
 #else
 #define DEFAULT_LAN_IF  "eth0"
 #endif
@@ -40,16 +40,37 @@
 #define PAR_CONFIG_RIGHT_MARGIN_OFFSET_SIZE_2B  0x1fc
 #define PAR_CONFIG_BOTTOM_MARGIN_OFFSET_SIZE_2B 0x1fe
 
-static int g_devive_num = -1;
-static int g_left_margin = -1;
-static int g_top_margin = -1;
-static int g_right_margin = -1;
-static int g_bottom_margin = -1;
+typedef struct PAR_HEAD_CONFIG
+{ 
+    int devive_num;
+    int left_margin;
+    int top_margin;
+    int right_margin;
+    int bottom_margin;
+    UINT32 local_ip_he;
+    UINT32 first802_ip_he;
+}PAR_HEAD_CONFIG;
 
-static UINT32 g_local_ip_he = -1;
-static UINT32 g_first802_ip_he = -1;
+static PAR_HEAD_CONFIG g_parHeadConfig_preParse = {
+    .devive_num = -1,
+    .left_margin = -1,
+    .top_margin = -1,
+    .right_margin = -1,
+    .bottom_margin = -1,
+    .local_ip_he = -1,
+    .first802_ip_he = -1
+};
 
 
+static PAR_HEAD_CONFIG g_parHeadConfig = {
+    .devive_num = -1,
+    .left_margin = -1,
+    .top_margin = -1,
+    .right_margin = -1,
+    .bottom_margin = -1,
+    .local_ip_he = -1,
+    .first802_ip_he = -1
+};
 
 int SendCmdRX802_many_0x33()
 {
@@ -165,7 +186,7 @@ int SendCmd2RX802Single(void *cmd_buf, UPUSP *upusp)
     return ret;
 }
 
-int RX802Cmd_setIp(char *set_ip)
+int RX802Cmd_setIp(const char *set_ip)
 {
     if (NULL == set_ip) {
         return -1;
@@ -188,8 +209,8 @@ int RX802Cmd_setIp(char *set_ip)
     msleep(1000);
     SendCmdRX802_many_0x33();
     //sleep(5);
-    g_first802_ip_he = *(UINT32*)&cmd_buf.ip[0];
-    g_first802_ip_he = ntohl(g_first802_ip_he);
+    UINT32 ip_tmp = *(UINT32*)&cmd_buf.ip[0];
+    g_parHeadConfig_preParse.first802_ip_he = ntohl(ip_tmp);
     return 0;
 }
 
@@ -281,14 +302,16 @@ int RX802Cmd_ControlData(char *ip, PKT_CONTROL_DATA *p_cmd_buf)
 
 int RX802_parseParFileHead(char *buf)
 {
-    g_devive_num = (int)buf[PAR_CONFIG_DEVICE_NUM_OFFSET_SIZE_1B];
-    g_left_margin = (int)*(short*)&buf[PAR_CONFIG_LEFT_MARGIN_OFFSET_SIZE_2B];
-    g_top_margin = (int)*(short*)&buf[PAR_CONFIG_TOP_MARGIN_OFFSET_SIZE_2B];
-    g_right_margin = (int)*(short*)&buf[PAR_CONFIG_RIGHT_MARGIN_OFFSET_SIZE_2B];
-    g_bottom_margin = (int)*(short*)&buf[PAR_CONFIG_BOTTOM_MARGIN_OFFSET_SIZE_2B];
+    g_parHeadConfig_preParse.devive_num = (int)buf[PAR_CONFIG_DEVICE_NUM_OFFSET_SIZE_1B];
+    g_parHeadConfig_preParse.left_margin = (int)*(short*)&buf[PAR_CONFIG_LEFT_MARGIN_OFFSET_SIZE_2B];
+    g_parHeadConfig_preParse.top_margin = (int)*(short*)&buf[PAR_CONFIG_TOP_MARGIN_OFFSET_SIZE_2B];
+    g_parHeadConfig_preParse.right_margin = (int)*(short*)&buf[PAR_CONFIG_RIGHT_MARGIN_OFFSET_SIZE_2B];
+    g_parHeadConfig_preParse.bottom_margin = (int)*(short*)&buf[PAR_CONFIG_BOTTOM_MARGIN_OFFSET_SIZE_2B];
     LOG("devices num:%d, left_margin:%d, top_margin:%d, right_margin:%d, bottom_margin:%d",
-        g_devive_num, g_left_margin, g_top_margin, g_right_margin, g_bottom_margin);
-    return (g_devive_num > 0) ? 0 : -1;
+        g_parHeadConfig_preParse.devive_num, g_parHeadConfig_preParse.left_margin,
+        g_parHeadConfig_preParse.top_margin, g_parHeadConfig_preParse.right_margin,
+        g_parHeadConfig_preParse.bottom_margin);
+    return (g_parHeadConfig_preParse.devive_num > 0) ? 0 : -1;
 }
 
 int RX802Cmd_Model_if(char *filepath)
@@ -322,23 +345,30 @@ int RX802Cmd_Model_if(char *filepath)
     server.sin_port = htons(PORT_TYPE_SEND);
     uint32_t ip_be;
 /* START: Do par head */
-    for (g_devive_num = -1; (g_devive_num == -1 || d < g_devive_num); d++) {
+    for (g_parHeadConfig_preParse.devive_num = -1;
+         (g_parHeadConfig_preParse.devive_num == -1 || d < g_parHeadConfig_preParse.devive_num);
+         d++) {
         memset(read_buf, 0x0, sizeof(read_buf));
         read_ret = read(fd, read_buf, PAR_FILE_MODEL_BLOCK);
         if (read_ret <= 0) {
             LOG("ERRROR!read_ret:%ld; file:%s is a empty file?", read_ret, filepath);
             goto err;
         }
-    /* head: set ip according to par */
-        ip_be = *(uint32_t*)read_buf;
-        ip_be = BE_LE_SWAP32(ip_be);  //transform ip_le to ip_be
-        if (RX802Cmd_SetIp_if(inet_ntoa(*(struct in_addr*)&ip_be))) {
-            goto err;
-        }
-    /* head: set g_devive_num & per margins by par. */
-        if (RX802_parseParFileHead(read_buf)) {
-            LOG("ERRROR!can not get valid g_devive_num!");
-            goto err;
+        if (g_parHeadConfig_preParse.devive_num == -1) {
+        /* head: set g_devive_num & per margins by par. */
+            if (RX802_parseParFileHead(read_buf)) {
+                LOG("ERRROR!can not get valid devive_num!");
+                goto err;
+            }
+        /* head: set ip according to par */
+            ip_be = *(uint32_t*)read_buf;
+            ip_be = BE_LE_SWAP32(ip_be);  //transform ip_le to ip_be
+            char *strIp_dup = strdup(inet_ntoa(*(struct in_addr*)&ip_be));
+            if (RX802Cmd_SetIp_if(strIp_dup)) {
+                free(strIp_dup);
+                goto err;
+            }
+            free(strIp_dup);
         }
     /* head: Send 0x31 pkt control */
         server.sin_addr.s_addr = (in_addr_t)ip_be;
@@ -349,17 +379,20 @@ int RX802Cmd_Model_if(char *filepath)
         }
         sleep(5); //send 0x31 should wait 5s
     }
+    /* set new par config ok. */
+    memcpy(&g_parHeadConfig, &g_parHeadConfig_preParse, sizeof(g_parHeadConfig));
+    memset(&g_parHeadConfig_preParse, 0xff, sizeof(g_parHeadConfig_preParse));
 /* END: do head end */
 
 /* START: do net */
     //skip 512 * g_devive_numconfig head
-    /* off_t off = */lseek(fd, PAR_FILE_MODEL_BLOCK * g_devive_num, SEEK_SET);
+    /* off_t off = */lseek(fd, PAR_FILE_MODEL_BLOCK * g_parHeadConfig.devive_num, SEEK_SET);
 
     //SendCmdRX802ExitPlayState(g_devive_num); //need ??
 
 
     while (1) {
-        for (d = 0; d < g_devive_num; d++) {
+        for (d = 0; d < g_parHeadConfig.devive_num; d++) {
             memset(read_buf, 0x0, sizeof(read_buf));
             read_ret = read(fd, read_buf, PAR_FILE_MODEL_BLOCK);
             if (read_ret <= 0) {
@@ -390,7 +423,7 @@ int RX802Cmd_Model_if(char *filepath)
             //go to deal send 0xff 0xff
             break;
         } else {
-            if (read_size == PAR_FILE_MODEL_BLOCK * g_devive_num) {
+            if (read_size == PAR_FILE_MODEL_BLOCK * g_parHeadConfig.devive_num) {
 #if TEST
 #else
                 msleep(RX802_UDP_LONG_SLEEP);
@@ -403,7 +436,7 @@ int RX802Cmd_Model_if(char *filepath)
 //todo send 0xff 0xff ... * g_device_num
     memset(&pkt_buf[1], 0xff, sizeof(read_buf) - (pkt_buf - read_buf));
     ip_be = (uint32_t)server.sin_addr.s_addr;
-    for (d = 0; d < g_devive_num; d++) {
+    for (d = 0; d < g_parHeadConfig.devive_num; d++) {
         ip_be = ntohl(ip_be);
         ip_be += d;     //make sure continuously ip in par file.
         server.sin_addr.s_addr = (in_addr_t)htonl(ip_be);
@@ -413,7 +446,7 @@ int RX802Cmd_Model_if(char *filepath)
         }
         msleep(RX802_UDP_SHORT_SLEEP);
     }
-    ret = g_devive_num;
+    ret = g_parHeadConfig.devive_num;
     LOG("Send Model.file Over!");
 err:
     UDP_DeinitSocket(socket);
@@ -422,7 +455,7 @@ err2:
     return ret;
 }
 
-int RX802Cmd_ReportState(char *ip)
+int RX802Cmd_ReportState_if(char *ip)
 {//unicast
     if (!ip) {
         return -1;
@@ -492,20 +525,27 @@ err:
 
 int RX802_ClearArpTable()
 {
-    UINT32 ip_addr = htonl(g_first802_ip_he);
-    LOG("clear g_devive_num:%d, g_first802_ip_he:%s.", g_devive_num, inet_ntoa(*(struct in_addr*)&ip_addr));
-    if (g_devive_num <= 0) {
-        g_first802_ip_he = -1;
+    if (g_parHeadConfig.devive_num <= 0) {
+        g_parHeadConfig.first802_ip_he = -1;
         return 0;
     }
-    if (g_first802_ip_he == -1) {
+    if (g_parHeadConfig.first802_ip_he == -1) {
         LOG("ERROR!");
         return -1;
     }
+    LOG("Will Del arp: dev num:%d, first802_ip:%hhx.%hhx.%hhx.%hhx.",
+        g_parHeadConfig.devive_num,
+        ((char*)&g_parHeadConfig.first802_ip_he)[3],
+        ((char*)&g_parHeadConfig.first802_ip_he)[2],
+        ((char*)&g_parHeadConfig.first802_ip_he)[1],
+        ((char*)&g_parHeadConfig.first802_ip_he)[0]);
     UINT32 ip_be;
     int d;
-    for (d = 0; d < g_devive_num; d++) {
-        ip_be = htonl(g_first802_ip_he + d);
+    for (d = 0; d < g_parHeadConfig.devive_num; d++) {
+        
+        ip_be = htonl(g_parHeadConfig.first802_ip_he + d);
+        LOG("clear g_devive_num:%d, ip:%s.",
+            d, inet_ntoa(*(struct in_addr*)&ip_be));
         arpDel(DEFAULT_LAN_IF, inet_ntoa(*(struct in_addr*)&ip_be));
     }
     return 0;
@@ -515,45 +555,66 @@ int RX802_ClearArpTable()
 int RX802_BuildArpTable()
 {
     //eg  arp :  192.168.1.255 -> 0x66 0x88 0xc0 0xa8 0x01 {0xip[4]}
-    UINT32 ip_addr = htonl(g_first802_ip_he);
-    LOG("make g_devive_num:%d, g_first802_ip_he:%s.", g_devive_num, inet_ntoa(*(struct in_addr*)&ip_addr));
+    UINT32 ip_addr = htonl(g_parHeadConfig_preParse.first802_ip_he);
+    LOG("make devive_num:%d, g_first802_ip_he:%s.",
+        g_parHeadConfig_preParse.devive_num, inet_ntoa(*(struct in_addr*)&ip_addr));
     int ret = 0;
     UINT32 ip_be;
+    char strIp[16] = {0};
     char mac[6] = {0x66, 0x88, 0, 0, 0, 0};
     char mac_str[18] = {0};
     int d;
-    for (d = 0; d < g_devive_num; d++) {
-        ip_be = htonl(g_first802_ip_he + d);
+    for (d = 0; d < g_parHeadConfig_preParse.devive_num; d++) {
+        ip_be = htonl(g_parHeadConfig_preParse.first802_ip_he + d);
         memcpy(&mac[2], &ip_be, sizeof(ip_be));
         snprintf(mac_str, sizeof(mac_str), "%02hhx:%02hhx:%02hhx:%02hhx:%hhx:%hhx",
             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        ret += arpSet(DEFAULT_LAN_IF, inet_ntoa(*(struct in_addr*)&ip_be), mac_str);
+        strcpy(strIp, inet_ntoa(*(struct in_addr*)&ip_be));
+        LOG("arp set %s %s on "DEFAULT_LAN_IF, strIp, mac_str);
+        ret += arpSet(DEFAULT_LAN_IF, strIp, mac_str);
+        
     }
     return ret;
 }
 
 
-int RX802Cmd_SetIp_if(char *ip)
-{//if ip is 192.168.1.20, so local ip is 192.168.1.2
+int RX802Cmd_SetIp_if(const char *ip)
+{//if ip is 192.168.1.20, so local ip is 192.168.1.9
+    int ret= -1;
+    int flagOnlySetIP = 0;
+    PAR_HEAD_CONFIG tmp_0xff;
+    memset(&tmp_0xff, 0xff, sizeof(tmp_0xff));
+    if (0 == memcmp(&tmp_0xff, &g_parHeadConfig_preParse, sizeof(tmp_0xff))) {
+    /* if only set ip, but not send para*/
+        flagOnlySetIP = 1;
+        g_parHeadConfig_preParse.devive_num = (g_parHeadConfig_preParse.devive_num > 0) ?
+            g_parHeadConfig_preParse.devive_num : g_parHeadConfig.devive_num;
+    }
+    if (g_parHeadConfig_preParse.devive_num <= 0) {
+        LOG("ERROR: Invalid devices number! Did you send para firstly?");
+        return -1;
+    }
     /* to Clear arp table */
     RX802_ClearArpTable();
-
     UINT32 ip_be;
     if (AtonIp(ip, &ip_be)) {
         LOG("AtonIp failed!");
         return -1;
     }
-
     ip_be = ntohl(ip_be);
     ip_be &= 0xffffff00;
-    ip_be |= 0x5;//now ip is xxx.xxx.xxx.5
+    ip_be |= 0x9;//now ip is xxx.xxx.xxx.9
     ip_be = htonl(ip_be);
+    LOG("Setting local IP:%s: [%s]", DEFAULT_LAN_IF, inet_ntoa(*(struct in_addr*)&ip_be));
     if (SetLocalIp(DEFAULT_LAN_IF, inet_ntoa(*(struct in_addr*)&ip_be))) {
         return -1;
     }
-    g_local_ip_he = ntohl(ip_be);
+    LOG("Set local IP:%s: [%s] success!", DEFAULT_LAN_IF, inet_ntoa(*(struct in_addr*)&ip_be));
+    g_parHeadConfig_preParse.local_ip_he = ntohl(ip_be);
 /* to add default route */
-    system("route add default "DEFAULT_LAN_IF);
+    system("route add 255.255.255.255 dev "DEFAULT_LAN_IF);
+    LOG("route add 255.255.255.255 gw %s.", DEFAULT_LAN_IF);
+
 #if TEST
 #else
     SendCmdRX802ExitPlayState(1);
@@ -563,13 +624,25 @@ int RX802Cmd_SetIp_if(char *ip)
         return -1;
     }
 /* to Build arp table */
-    g_devive_num = 1;
-    RX802_BuildArpTable();
+    //g_devive_num = 1;
+    ret = RX802_BuildArpTable();
+    if (ret) {
+        LOG("ERROR in RX802_BuildArpTable: ret:%d", ret);
+    }
+    if (flagOnlySetIP) {
+        g_parHeadConfig.first802_ip_he = g_parHeadConfig_preParse.first802_ip_he;
+        memset(&g_parHeadConfig_preParse, 0xff, sizeof(g_parHeadConfig_preParse));
+    }
     return 0;
 }
 
 int RX802Cmd_Update_if(char *ip, char *filepath)
 {
+    if (0 == memcmp(&g_parHeadConfig, &g_parHeadConfig_preParse, sizeof(g_parHeadConfig))) {
+    /* all config is 0xff, mean haven't send para*/
+        LOG("par head config not inited, Did you send para firstly?");
+        return -1;
+    }
 #if TEST
 #else
     SendCmdRX802ExitPlayState(1);
