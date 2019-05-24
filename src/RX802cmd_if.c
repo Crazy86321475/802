@@ -41,7 +41,7 @@
 #define PAR_CONFIG_BOTTOM_MARGIN_OFFSET_SIZE_2B 0x1fe
 
 typedef struct PAR_HEAD_CONFIG
-{ 
+{
     int devive_num;
     int left_margin;
     int top_margin;
@@ -351,7 +351,7 @@ int RX802Cmd_Model_if(char *filepath)
         memset(read_buf, 0x0, sizeof(read_buf));
         read_ret = read(fd, read_buf, PAR_FILE_MODEL_BLOCK);
         if (read_ret <= 0) {
-            LOG("ERRROR!read_ret:%ld; file:%s is a empty file?", read_ret, filepath);
+            LOG("ERRROR!read_ret:%zd; file:%s is a empty file?", read_ret, filepath);
             goto err;
         }
         if (g_parHeadConfig_preParse.devive_num == -1) {
@@ -396,11 +396,11 @@ int RX802Cmd_Model_if(char *filepath)
             memset(read_buf, 0x0, sizeof(read_buf));
             read_ret = read(fd, read_buf, PAR_FILE_MODEL_BLOCK);
             if (read_ret <= 0) {
-                LOG("read Model.file EOS! par size:%lu", read_size);
+                LOG("read Model.file EOS! par size:%zu", read_size);
                 break;
             } else {
                 if (read_ret != PAR_FILE_MODEL_BLOCK) {
-                    LOG("ERRROR!:par's size %% 512 isn't 0! read_ret:%ld", read_ret);
+                    LOG("ERRROR!:par's size %% 512 isn't 0! read_ret:%zd", read_ret);
                     goto err;
                 }
                 read_size += read_ret;
@@ -501,7 +501,7 @@ int RX802Cmd_ReportState_if(char *ip)
         goto err;
     }
     ssize_t num = recv(socket, pkt_buf, RX802_UDP_MAX_PKT_LEN, 0);
-    LOG("num:%ld", num);
+    LOG("num:%zd", num);
     printf("respond:%s\n", pkt_buf);
     //PKT_REPORT_STATE_DATA_RESPOND *p_report_buf = (PKT_REPORT_STATE_DATA_RESPOND*)pkt_buf; 
     // todo parse
@@ -542,7 +542,6 @@ int RX802_ClearArpTable()
     UINT32 ip_be;
     int d;
     for (d = 0; d < g_parHeadConfig.devive_num; d++) {
-        
         ip_be = htonl(g_parHeadConfig.first802_ip_he + d);
         LOG("clear g_devive_num:%d, ip:%s.",
             d, inet_ntoa(*(struct in_addr*)&ip_be));
@@ -572,7 +571,6 @@ int RX802_BuildArpTable()
         strcpy(strIp, inet_ntoa(*(struct in_addr*)&ip_be));
         LOG("arp set %s %s on "DEFAULT_LAN_IF, strIp, mac_str);
         ret += arpSet(DEFAULT_LAN_IF, strIp, mac_str);
-        
     }
     return ret;
 }
@@ -613,7 +611,7 @@ int RX802Cmd_SetIp_if(const char *ip)
     g_parHeadConfig_preParse.local_ip_he = ntohl(ip_be);
 /* to add default route */
     system("route add 255.255.255.255 dev "DEFAULT_LAN_IF);
-    LOG("route add 255.255.255.255 gw %s.", DEFAULT_LAN_IF);
+    LOG("route add 255.255.255.255 dev %s.", DEFAULT_LAN_IF);
 
 #if TEST
 #else
